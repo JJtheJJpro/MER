@@ -567,7 +567,7 @@ export default class x86_16 {
             x86_16[segReg] = x86_16[regNames[rm]];
         }
 
-        return `mov ${vS ?? regNames[rm]},${segReg}`;
+        return `mov ${segReg},${vS ?? regNames[rm]}`;
     }
     static opAE(bst: ByteStream) {
         if (typeof x86_16.es != 'number' || typeof x86_16.di != 'number') {

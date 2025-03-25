@@ -135,15 +135,17 @@ pub fn op33(execute: bool, bst: &mut ByteStream) -> String {
     if execute {
         let regv = get_parsed_reg(&destreg).unwrap();
         if v.is_some() {
-            let index = ((if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
-                *DS.read().unwrap()
-            } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
-                *SS.read().unwrap()
-            } else {
-                panic!()
-            } as u32)
-                << 4)
-                + v.unwrap() as u32;
+            let index =
+                ((if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7
+                {
+                    *DS.read().unwrap()
+                } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                    *SS.read().unwrap()
+                } else {
+                    panic!()
+                } as u32)
+                    << 4)
+                    + v.unwrap() as u32;
             let r_bst = bst.read_word_at(index as usize);
             set_parsed_reg(&destreg, regv ^ r_bst).unwrap();
         } else {
@@ -192,23 +194,27 @@ pub fn op81(execute: bool, bst: &mut ByteStream) -> String {
             "sub" => {
                 if v.is_some() {
                     let vt = bst.read_word_at(v.unwrap() as usize);
-                    bst.replace_word(v.unwrap() as usize, vt - immediate);
+                    bst.replace_word(v.unwrap() as usize, vt.wrapping_sub(immediate));
                 } else {
                     let sregv = REG_NAMES[rm as usize].to_owned();
                     let regv = get_parsed_reg(&sregv).unwrap();
-                    set_parsed_reg(&sregv, regv - immediate).unwrap();
+                    set_parsed_reg(&sregv, regv.wrapping_sub(immediate)).unwrap();
                 }
             }
             &_ => panic!(),
         }
     }
 
-    format!("{} {},0x{immediate:X}", mnemonic, v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned()))
+    format!(
+        "{} {},0x{immediate:X}",
+        mnemonic,
+        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+    )
 }
 pub fn op83(execute: bool, bst: &mut ByteStream) -> String {
     let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
 
-    let immediate = bst.read_sbyte();
+    let immediate = bst.read_byte();
     let mnemonic = OPS[reg as usize];
 
     if execute {
@@ -216,18 +222,142 @@ pub fn op83(execute: bool, bst: &mut ByteStream) -> String {
             "sub" => {
                 if v.is_some() {
                     let vt = bst.read_byte_at(v.unwrap() as usize);
-                    bst.replace_byte(v.unwrap() as usize, ((vt as i16) - (immediate as i16)) as i8 as u8);
+                    bst.replace_byte(v.unwrap() as usize, vt.wrapping_sub(immediate));
                 } else {
                     let sregv = REG_NAMES[rm as usize].to_owned();
                     let regv = get_parsed_reg(&sregv).unwrap();
-                    set_parsed_reg(&sregv, ((regv as i16) - immediate)).unwrap();
+                    set_parsed_reg(&sregv, regv.wrapping_sub(immediate as u16)).unwrap();
                 }
             }
             &_ => panic!(),
         }
     }
 
-    format!("{} {},0x{immediate:X}", mnemonic, v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned()))
+    format!(
+        "{} {},0x{immediate:X}",
+        mnemonic,
+        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+    )
+}
+pub fn op8b(execute: bool, bst: &mut ByteStream) -> String {
+    let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
+    let destreg = REG_NAMES[reg as usize].to_owned();
+
+    if execute {
+        if v.is_some() {
+            let index =
+                if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
+                    *DS.read().unwrap()
+                } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                    *SS.read().unwrap()
+                } else {
+                    panic!()
+                } << 4 + v.unwrap();
+
+            set_parsed_reg(&destreg, bst.read_word_at(index as usize)).unwrap();
+        } else {
+            let regv = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
+            set_parsed_reg(&destreg, regv).unwrap();
+        }
+    }
+
+    format!(
+        "mov {destreg},{}",
+        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+    )
+}
+pub fn op8c(execute: bool, bst: &mut ByteStream) -> String {
+    let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
+    let seg_reg = SEG_REG_NAMES[reg as usize].to_owned();
+
+    if execute {
+        if v.is_some() {
+            let index =
+                if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
+                    *DS.read().unwrap()
+                } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                    *SS.read().unwrap()
+                } else {
+                    panic!()
+                } << 4 + v.unwrap();
+
+            let regv = get_parsed_seg_reg(&seg_reg).unwrap();
+            bst.replace_word(index as usize, regv);
+        } else {
+            let regv = get_parsed_seg_reg(&seg_reg).unwrap();
+            set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), regv).unwrap();
+        }
+    }
+
+    format!(
+        "mov {},{seg_reg}",
+        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+    )
+}
+pub fn op8d(execute: bool, bst: &mut ByteStream) -> String {
+    let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
+    if execute {
+        set_parsed_reg(
+            &REG_NAMES[reg as usize].to_owned(),
+            v.unwrap_or_else(|| get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap()),
+        )
+        .unwrap();
+    }
+    format!(
+        "lea {},{}",
+        REG_NAMES[reg as usize],
+        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+    )
+}
+pub fn op8e(execute: bool, bst: &mut ByteStream) -> String {
+    let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
+    let seg_reg = SEG_REG_NAMES[reg as usize].to_owned();
+
+    if execute {
+        if v.is_some() {
+            let index =
+                if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
+                    *DS.read().unwrap()
+                } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                    *SS.read().unwrap()
+                } else {
+                    panic!()
+                } << 4 + v.unwrap();
+
+            let regv = bst.read_word_at(index as usize);
+            set_parsed_seg_reg(&seg_reg, regv).unwrap();
+        } else {
+            let regv = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
+            set_parsed_seg_reg(&seg_reg, regv).unwrap();
+        }
+    }
+
+    format!(
+        "mov {seg_reg},{}",
+        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+    )
+}
+pub fn opae(execute: bool, bst: &mut ByteStream) -> String {
+    if execute {
+        let ptr_val = bst.read_byte_at((((*ES.read().unwrap() as u32) << 4) + *DI.read().unwrap() as u32) as usize);
+        *ZF.write().unwrap() = ptr_val == *AL.read().unwrap();
+        if *DF.read().unwrap() {
+            *DI.write().unwrap() -= 1;
+        } else {
+            *DI.write().unwrap() += 1;
+        }
+    }
+
+    "scasb".to_owned()
+}
+pub fn opb0(execute: bool, bst: &mut ByteStream) -> String {
+    let b = bst.read_byte();
+    
+    if execute {
+        *AL.write().unwrap() = b;
+    }
+
+    format!("mov al,0x{b}")
 }
 
 /// <p>Parses code and converts it into 16-bit assembly code with the x86 instruction set.</p>
