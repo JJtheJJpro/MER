@@ -1,11 +1,12 @@
 pub struct ByteStream {
     buf: Vec<u8>,
+    skip: Vec<u8>,
     pub pos: usize,
 }
 
 impl ByteStream {
     pub fn new(buf: Vec<u8>) -> Self {
-        Self { buf, pos: 0 }
+        Self { buf, skip: Vec::new(), pos: 0 }
     }
 
     pub fn available(&self) -> bool {
@@ -23,6 +24,15 @@ impl ByteStream {
             }
         }
         true
+    }
+
+    //pub fn skip_bytes_at(&mut self, bytes: &mut Vec<u8>) {
+    //    self.skip.append(bytes);
+    //}
+    // Use the top one if Vec values are not needed when using this function.
+    pub fn skip_bytes_at(&mut self, bytes: &Vec<u8>) {
+        let mut copy = bytes.clone();
+        self.skip.append(&mut copy);
     }
 
     pub fn read_byte(&mut self) -> u8 {
@@ -75,6 +85,12 @@ impl ByteStream {
     }
     pub fn read_word_at(&self, pos: usize) -> u16 {
         ((self.buf[pos + 1] as u16) << 8) | (self.buf[pos] as u16)
+    }
+
+    pub fn read_sword(&mut self) -> i16 {
+        let b1 = self.read_byte() as u16;
+        let b2 = self.read_byte() as u16;
+        (b2 << 8 | b1) as i16
     }
 
     pub fn read_dword(&mut self) -> u32 {

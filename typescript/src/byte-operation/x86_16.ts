@@ -691,8 +691,6 @@ export default class x86_16 {
                 x86_16.pf = (res & 0xFF).toString(2).replace('0', '').length & 0b1 ? 0 : 1;
                 instr = `test ${vS ?? regNames[rm]},0x${imm16.toString(16).toUpperCase()}`;
                 break;
-            case 1:
-                throw new Error();
             case 2:
                 v ? bst.ReplaceWord(v, ~bst.ReadWordAt(v) & 0xFFFF) : x86_16[regNames[rm]] = ~x86_16[regNames[rm]] & 0xFFFF;
                 instr = `not ${vS ?? regNames[rm]}`;
@@ -714,7 +712,7 @@ export default class x86_16 {
                 instr = `idiv ${vS ?? regNames[rm]}`;
                 break;
             default:
-                break;
+                throw new Error();
         }
 
         return instr;

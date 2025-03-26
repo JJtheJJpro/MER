@@ -6,6 +6,11 @@ use crate::{byte_stream::ByteStream, mz::MZ};
 
 pub mod ne;
 
+pub enum InteruptChange {
+    None,
+    String(u16, u16),
+}
+
 pub enum Signature {
     MZ,
     NE,

@@ -4,6 +4,7 @@ pub mod byte_stream;
 pub mod executable;
 pub mod mz;
 pub mod byte_operation;
+pub mod apis;
 
 fn log_info(exe: Executable) {}
 

@@ -1,6 +1,10 @@
 use std::{io::Error, sync::RwLock};
 
-use crate::byte_stream::ByteStream;
+use crate::{
+    apis::{dos::dos_op_cd, API},
+    byte_stream::ByteStream,
+    executable::InteruptChange,
+};
 
 const OPS: [&str; 8] = ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"];
 const REG_NAMES: [&str; 8] = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"];
@@ -113,22 +117,25 @@ fn set_parsed_seg_reg(seg_reg: &String, v: u16) -> Result<(), Error> {
     }
 }
 
-pub fn op00() -> String {
+pub fn op_00() -> String {
     "nop".to_owned()
 }
-pub fn op0e(execute: bool) -> String {
+// 01-0d
+pub fn op_0e(execute: bool) -> String {
     if execute {
         STACK.write().unwrap().push(*CS.read().unwrap());
     }
     "push cs".to_owned()
 }
-pub fn op1f(execute: bool) -> String {
+// 0f-1e
+pub fn op_1f(execute: bool) -> String {
     if execute {
         *DS.write().unwrap() = STACK.write().unwrap().pop().unwrap();
     }
     "pop ds".to_owned()
 }
-pub fn op33(execute: bool, bst: &mut ByteStream) -> String {
+// 20-32
+pub fn op_33(execute: bool, bst: &mut ByteStream) -> String {
     let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     let destreg = REG_NAMES[reg as usize].to_owned();
 
@@ -159,31 +166,35 @@ pub fn op33(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op50(execute: bool) -> String {
+// 34-4f
+pub fn op_50(execute: bool) -> String {
     if execute {
         STACK.write().unwrap().push(get_ax());
     }
     "push ax".to_owned()
 }
-pub fn op55(execute: bool) -> String {
+// 51-54
+pub fn op_55(execute: bool) -> String {
     if execute {
         STACK.write().unwrap().push(*BP.read().unwrap());
     }
     "push bp".to_owned()
 }
-pub fn op56(execute: bool) -> String {
+pub fn op_56(execute: bool) -> String {
     if execute {
         STACK.write().unwrap().push(*SI.read().unwrap());
     }
     "push si".to_owned()
 }
-pub fn op5d(execute: bool) -> String {
+// 57-5c
+pub fn op_5d(execute: bool) -> String {
     if execute {
         *BP.write().unwrap() = STACK.write().unwrap().pop().unwrap();
     }
     "pop bp".to_owned()
 }
-pub fn op81(execute: bool, bst: &mut ByteStream) -> String {
+// 5e-80
+pub fn op_81(execute: bool, bst: &mut ByteStream) -> String {
     let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
 
     let immediate = bst.read_word();
@@ -211,7 +222,8 @@ pub fn op81(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op83(execute: bool, bst: &mut ByteStream) -> String {
+// 82
+pub fn op_83(execute: bool, bst: &mut ByteStream) -> String {
     let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
 
     let immediate = bst.read_byte();
@@ -239,7 +251,8 @@ pub fn op83(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op8b(execute: bool, bst: &mut ByteStream) -> String {
+// 84-8a
+pub fn op_8b(execute: bool, bst: &mut ByteStream) -> String {
     let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     let destreg = REG_NAMES[reg as usize].to_owned();
 
@@ -266,7 +279,7 @@ pub fn op8b(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op8c(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_8c(execute: bool, bst: &mut ByteStream) -> String {
     let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     let seg_reg = SEG_REG_NAMES[reg as usize].to_owned();
 
@@ -294,7 +307,7 @@ pub fn op8c(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op8d(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_8d(execute: bool, bst: &mut ByteStream) -> String {
     let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     if execute {
         set_parsed_reg(
@@ -309,7 +322,7 @@ pub fn op8d(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op8e(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_8e(execute: bool, bst: &mut ByteStream) -> String {
     let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     let seg_reg = SEG_REG_NAMES[reg as usize].to_owned();
 
@@ -337,9 +350,12 @@ pub fn op8e(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn opae(execute: bool, bst: &mut ByteStream) -> String {
+// 8f-ad
+pub fn op_ae(execute: bool, bst: &mut ByteStream) -> String {
     if execute {
-        let ptr_val = bst.read_byte_at((((*ES.read().unwrap() as u32) << 4) + *DI.read().unwrap() as u32) as usize);
+        let ptr_val = bst.read_byte_at(
+            (((*ES.read().unwrap() as u32) << 4) + *DI.read().unwrap() as u32) as usize,
+        );
         *ZF.write().unwrap() = ptr_val == *AL.read().unwrap();
         if *DF.read().unwrap() {
             *DI.write().unwrap() -= 1;
@@ -350,51 +366,305 @@ pub fn opae(execute: bool, bst: &mut ByteStream) -> String {
 
     "scasb".to_owned()
 }
-pub fn opb0(execute: bool, bst: &mut ByteStream) -> String {
-    let b = bst.read_byte();
-    
+// af
+pub fn op_b0(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov al,0x{}", {
+        let b = bst.read_byte();
+        if execute {
+            *AL.write().unwrap() = b;
+        }
+        b
+    })
+}
+pub fn op_b1(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov cl,0x{}", {
+        let b = bst.read_byte();
+        if execute {
+            *CL.write().unwrap() = b;
+        }
+        b
+    })
+}
+pub fn op_b2(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov dl,0x{}", {
+        let b = bst.read_byte();
+        if execute {
+            *DL.write().unwrap() = b;
+        }
+        b
+    })
+}
+pub fn op_b3(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov bl,0x{}", {
+        let b = bst.read_byte();
+        if execute {
+            *BL.write().unwrap() = b;
+        }
+        b
+    })
+}
+pub fn op_b4(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov ah,0x{}", {
+        let b = bst.read_byte();
+        if execute {
+            *AL.write().unwrap() = b;
+        }
+        b
+    })
+}
+pub fn op_b5(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov ch,0x{}", {
+        let b = bst.read_byte();
+        if execute {
+            *CL.write().unwrap() = b;
+        }
+        b
+    })
+}
+pub fn op_b6(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov dh,0x{}", {
+        let b = bst.read_byte();
+        if execute {
+            *DL.write().unwrap() = b;
+        }
+        b
+    })
+}
+pub fn op_b7(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov bh,0x{}", {
+        let b = bst.read_byte();
+        if execute {
+            *BL.write().unwrap() = b;
+        }
+        b
+    })
+}
+pub fn op_b8(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov ax,0x{}", {
+        let w = bst.read_word();
+        if execute {
+            set_ax(w);
+        }
+        w
+    })
+}
+pub fn op_b9(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov cx,0x{}", {
+        let w = bst.read_word();
+        if execute {
+            set_cx(w);
+        }
+        w
+    })
+}
+pub fn op_ba(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov dx,0x{}", {
+        let w = bst.read_word();
+        if execute {
+            set_dx(w);
+        }
+        w
+    })
+}
+pub fn op_bb(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov bx,0x{}", {
+        let w = bst.read_word();
+        if execute {
+            set_bx(w);
+        }
+        w
+    })
+}
+pub fn op_bc(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov sp,0x{}", {
+        let w = bst.read_word();
+        if execute {
+            *SP.write().unwrap() = w;
+        }
+        w
+    })
+}
+pub fn op_bd(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov bp,0x{}", {
+        let w = bst.read_word();
+        if execute {
+            *BP.write().unwrap() = w;
+        }
+        w
+    })
+}
+pub fn op_be(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov si,0x{}", {
+        let w = bst.read_word();
+        if execute {
+            *SI.write().unwrap() = w;
+        }
+        w
+    })
+}
+pub fn op_bf(execute: bool, bst: &mut ByteStream) -> String {
+    format!("mov di,0x{}", {
+        let w = bst.read_word();
+        if execute {
+            *DI.write().unwrap() = w;
+        }
+        w
+    })
+}
+// c0-c2
+pub fn op_c3(execute: bool, bst: &mut ByteStream) -> String {
     if execute {
-        *AL.write().unwrap() = b;
+        bst.pos = STACK.write().unwrap().pop().unwrap() as usize;
     }
 
-    format!("mov al,0x{b}")
+    "ret".to_owned()
+}
+// c4-cb
+pub fn op_cd(execute: bool, bst: &mut ByteStream, api: API) -> (String, InteruptChange) {
+    match api {
+        API::DOS => dos_op_cd(execute, bst),
+        _ => (format!("int {}h", bst.read_byte()), InteruptChange::None),
+    }
+}
+// ce-e7
+pub fn op_e8(execute: bool, bst: &mut ByteStream) -> String {
+    let disp = bst.read_sword();
+    if execute {
+        STACK.write().unwrap().push(bst.pos as u16);
+        bst.pos += disp as usize;
+        format!("call 0x{:0000X}", bst.pos)
+    } else {
+        format!("call 0x{:0000X}", bst.pos + disp as usize)
+    }
+}
+
+pub fn op_f2(execute: bool, bst: &mut ByteStream) -> String {
+    if execute {
+        let fixed_pos = bst.pos;
+        let r = execute_byte_code(bst);
+        set_cx(get_cx() - 1);
+        while get_cx() > 0 || *ZF.read().unwrap() == true {
+            bst.pos = fixed_pos;
+            if execute_byte_code(bst) != r {
+                panic!();
+            }
+        }
+        format!("repne {r}")
+    } else {
+        format!("repne {}", parse_byte_code(bst))
+    }
+}
+pub fn op_f3() -> String {
+    format!("")
+}
+
+pub fn op_f7(execute: bool, bst: &mut ByteStream) -> String {
+    let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
+
+    match reg {
+        0 => {
+            let imm16 = bst.read_word();
+            let res =
+                v.unwrap_or_else(|| get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap());
+            if execute {
+                *CF.write().unwrap() = false;
+                *OF.write().unwrap() = false;
+                *ZF.write().unwrap() = res == 0;
+                *SF.write().unwrap() = (res >> 15) == 1;
+                *PF.write().unwrap() = (res & 0xFF).count_ones() % 2 == 0;
+            }
+            format!(
+                "test {},0x{imm16:0000X}",
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        2 => {
+            if execute {
+                if let Some(v1) = v {
+                    let w = bst.read_word_at(v1 as usize);
+                    bst.replace_word(v1 as usize, !w);
+                } else {
+                    let w = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
+                    set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), !w).unwrap();
+                }
+            }
+            format!(
+                "not {}",
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        3 => {
+            if execute {
+                let res = if let Some(v1) = v {
+                    let w = bst.read_word_at(v1 as usize);
+                    bst.replace_word(v1 as usize, 0u16.wrapping_sub(w));
+                    bst.read_word_at(v1 as usize)
+                } else {
+                    let w = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
+                    set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), 0u16.wrapping_sub(w))
+                        .unwrap();
+                    get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap()
+                };
+                *CF.write().unwrap() = res != 0;
+                *OF.write().unwrap() = res == 0x8000;
+                *ZF.write().unwrap() = res == 0;
+                *SF.write().unwrap() = (res >> 15) & 0b1 == 1;
+                *PF.write().unwrap() = (res & 0xFF).count_ones() % 2 == 0;
+                // AF?
+            }
+            format!(
+                "neg {}",
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+
+        _ => panic!(),
+    }
+}
+
+pub fn parse_byte_code(bst: &mut ByteStream) -> String {
+    let byte = bst.read_byte();
+
+    match byte {
+        0x00 => op_00(),
+        0x0E => op_0e(false),
+        0x1F => op_1f(false),
+        0x33 => op_33(false, bst),
+        _ => panic!(),
+    }
 }
 
 /// <p>Parses code and converts it into 16-bit assembly code with the x86 instruction set.</p>
-pub fn parse_byte_code(bytes: &Vec<u8>) -> Vec<String> {
+pub fn parse_code(bytes: &Vec<u8>) -> Vec<String> {
     let mut bst = ByteStream::new(bytes.clone());
 
     let mut code = Vec::new();
 
     while bst.available() {
-        let byte = bst.read_byte();
-
-        match byte {
-            0x00 => code.push(op00()),
-            0x0E => code.push(op0e(false)),
-            0x1F => code.push(op1f(false)),
-            0x33 => code.push(op33(false, &mut bst)),
-            _ => {}
-        }
+        code.push(parse_byte_code(&mut bst));
     }
 
     code
 }
 
-pub fn execute_byte_code(bytes: &mut Vec<u8>) -> Vec<String> {
+pub fn execute_byte_code(bst: &mut ByteStream) -> String {
+    let byte = bst.read_byte();
+
+    match byte {
+        0x00 => op_00(),
+        0x0E => op_0e(true),
+        0x1F => op_1f(true),
+        _ => panic!()
+    }
+}
+
+pub fn execute_code(bytes: &Vec<u8>) -> Vec<String> {
     let mut bst = ByteStream::new(bytes.clone());
 
     let mut code = Vec::new();
 
     while bst.available() {
-        let byte = bst.read_byte();
-
-        match byte {
-            0x00 => code.push(op00()),
-            0x0E => code.push(op0e(true)),
-            0x1F => code.push(op1f(true)),
-            _ => {}
-        }
+        code.push(execute_byte_code(&mut bst))
     }
 
     code
