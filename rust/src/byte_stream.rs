@@ -1,12 +1,16 @@
 pub struct ByteStream {
     buf: Vec<u8>,
-    skip: Vec<u8>,
+    skip: Vec<usize>,
     pub pos: usize,
 }
 
 impl ByteStream {
     pub fn new(buf: Vec<u8>) -> Self {
-        Self { buf, skip: Vec::new(), pos: 0 }
+        Self {
+            buf,
+            skip: Vec::new(),
+            pos: 0,
+        }
     }
 
     pub fn available(&self) -> bool {
@@ -26,12 +30,16 @@ impl ByteStream {
         true
     }
 
+    pub fn exit(&mut self) {
+        self.pos = self.buf.len();
+    }
+
     //pub fn skip_bytes_at(&mut self, bytes: &mut Vec<u8>) {
     //    self.skip.append(bytes);
     //}
     // Use the top one if Vec values are not needed when using this function.
-    pub fn skip_bytes_at(&mut self, bytes: &Vec<u8>) {
-        let mut copy = bytes.clone();
+    pub fn skip_bytes_at(&mut self, b_loc: &Vec<usize>) {
+        let mut copy = b_loc.clone();
         self.skip.append(&mut copy);
     }
 
@@ -98,6 +106,12 @@ impl ByteStream {
         let w2 = self.read_word() as u32;
         w2 << 16 | w1
     }
+    pub fn peek_dword(&self) -> u32 {
+        ((self.buf[self.pos + 3] as u32) << 24)
+            | ((self.buf[self.pos + 2] as u32) << 16)
+            | ((self.buf[self.pos + 1] as u32) << 8)
+            | (self.buf[self.pos] as u32)
+    }
 
     pub fn read_string(&mut self, len: usize) -> String {
         String::from_utf8_lossy(&self.read_bytes(len)).to_string()
@@ -115,6 +129,12 @@ impl ByteStream {
     }
 
     pub fn find_first_byte_from(&self, pos: usize, to_find: u8) -> usize {
-        self.buf[pos..].binary_search(&to_find).unwrap() + pos
+        self.buf[pos..].iter().position(|x| *x == to_find).unwrap() as usize + pos
+        //let asdf = self.buf[pos..].to_vec();
+        //for v in asdf.clone() {
+        //    println!("{v}");
+        //}
+        //let r = asdf.iter().find(|x| **x == to_find);
+        //*r.unwrap_or_else(|| &0) as usize
     }
 }

@@ -1,5 +1,23 @@
-use crate::{byte_stream::ByteStream, executable::Signature};
+use ne::NewExecutable;
 
+use crate::{byte_operation::x86_16, byte_stream::ByteStream};
+
+pub mod ne;
+
+/// All MZ extension signatures pertaining to MZ's New Header value.
+pub enum MZExtSignature {
+    /// The Windows New Executable format, successor to the DOS executables.  NE is always 16-bit.
+    NE(NewExecutable),
+    /// The Windows Linear Executable format, designed for 32-bit protected mod operating systems and 16-bit executable extensions.
+    LE,
+    /// The Windows Linear Executable format, except LX is only used in 32-bit environments and was developed specifically for OS/2 Warp, supporting further extensions over the LE format.
+    LX,
+    /// The Windows Portable Executable format, which uses a COFF header for object files and as a component for the header.  This can be 32-bit or 64-bit.
+    PE,
+}
+
+/// Named after <a href="https://en.wikipedia.org/wiki/Mark_Zbikowski">Mark Zbikowski</a>, the MZ Header is the main MS-DOS EXE format
+/// found in all windows executables and libraries, containing basic information of the whole executable.
 pub struct MZ {
     pub last_page_bytes: u16,
     pub page_count: u16,
@@ -15,17 +33,17 @@ pub struct MZ {
     pub relocation_table_offset: u16,
     pub overlay: u16,
 
-    pub oem_id: Option<u16>,
-    pub oem_info: Option<u16>,
-    pub new_header_start: Option<u32>,
+    pub oem_id: u16,
+    pub oem_info: u16,
+    pub new_header_start: u32,
 
     pub relocation_tables: Vec<RelocationTable>,
-    pub header_code: Vec<String>,
+    pub header_code: (Vec<u8>, Vec<String>),
 }
 
 impl MZ {
-    pub fn signature() -> Signature {
-        Signature::MZ
+    pub fn signature() -> String {
+        "MZ".to_owned()
     }
 
     pub fn read(bst: &mut ByteStream) -> Self {
@@ -43,14 +61,11 @@ impl MZ {
         let relocation_table_offset = bst.read_word();
         let overlay = bst.read_word();
 
-        let mut oem_id = None;
-        let mut oem_info = None;
-        let mut new_header_start = None;
-        bst.pos += 8;//bst.check_reserved(8); // skip instead of throw, for linker compatibility reasons
-        oem_id = Some(bst.read_word());
-        oem_info = Some(bst.read_word());
-        bst.pos += 8;//bst.check_reserved(20);
-        new_header_start = Some(bst.read_dword());
+        bst.pos += 8; //bst.check_reserved(8); // skip instead of throw, for linker compatibility reasons
+        let oem_id = bst.read_word();
+        let oem_info = bst.read_word();
+        bst.pos += 20; //bst.check_reserved(20);
+        let new_header_start = bst.read_dword();
 
         let mut relocation_tables = Vec::new();
         if bst.pos == relocation_table_offset as usize && relocation_table_entry_count > 0 {
@@ -65,9 +80,20 @@ impl MZ {
             }
         }
 
-        new_header_start.unwrap(); // more like a "todo!();" call
+        //*x86_16::SS.write().unwrap() = init_ss;
+        //*x86_16::SP.write().unwrap() = init_sp;
+        //*x86_16::IP.write().unwrap() = init_ip;
+        //*x86_16::CS.write().unwrap() = init_cs;
+        let header_byte_code = bst.read_bytes((new_header_start - header_size as u32 * 16) as usize);
+        let static_code = x86_16::static_code(&header_byte_code);
+        for l in static_code.clone() {
+            println!("{l}");
+        }
+        println!();
 
-        
+        if new_header_start > 0 {
+            
+        }
 
         MZ {
             last_page_bytes,
@@ -88,11 +114,12 @@ impl MZ {
             oem_info,
             new_header_start,
             relocation_tables,
-            header_code: Vec::new(),
+            header_code: (header_byte_code, static_code),
         }
     }
 }
 
+/// Represents a single Relocation Table possibly found in the MZ header.
 pub struct RelocationTable {
     pub offset: u16,
     pub segment: u16,

@@ -8,6 +8,7 @@ use crate::{
 
 const OPS: [&str; 8] = ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"];
 const REG_NAMES: [&str; 8] = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"];
+const REG_NAMES_8: [&str; 8] = ["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"];
 const RM_NAMES: [&str; 8] = ["bx+si", "bx+di", "bp+si", "bp+di", "si", "di", "bp", "bx"];
 const SEG_REG_NAMES: [&str; 4] = ["es", "cs", "ss", "ds"];
 
@@ -117,48 +118,91 @@ fn set_parsed_seg_reg(seg_reg: &String, v: u16) -> Result<(), Error> {
     }
 }
 
-pub fn op_00() -> String {
-    "nop".to_owned()
+fn get_parsed_reg_8(reg: &String) -> Result<u8, Error> {
+    match reg.as_str() {
+        "al" => Ok(*AL.read().unwrap()),
+        "cl" => Ok(*CL.read().unwrap()),
+        "dl" => Ok(*DL.read().unwrap()),
+        "bl" => Ok(*BL.read().unwrap()),
+        "ah" => Ok(*AH.read().unwrap()),
+        "ch" => Ok(*CH.read().unwrap()),
+        "dh" => Ok(*DH.read().unwrap()),
+        "bh" => Ok(*BH.read().unwrap()),
+        &_ => Err(Error::last_os_error()),
+    }
+}
+fn set_parsed_reg_8(reg: &String, v: u8) -> Result<(), Error> {
+    match reg.as_str() {
+        "al" => Ok(*AL.write().unwrap() = v),
+        "cl" => Ok(*CL.write().unwrap() = v),
+        "dl" => Ok(*DL.write().unwrap() = v),
+        "bl" => Ok(*BL.write().unwrap() = v),
+        "ah" => Ok(*AH.write().unwrap() = v),
+        "ch" => Ok(*CH.write().unwrap() = v),
+        "dh" => Ok(*DH.write().unwrap() = v),
+        "bh" => Ok(*BH.write().unwrap() = v),
+        &_ => Err(Error::last_os_error()),
+    }
+}
+
+pub fn op_00(bst: &mut ByteStream) -> String {
+    let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
+    let src = REG_NAMES_8[reg as usize].to_owned();
+    let dest = v_s.unwrap_or(REG_NAMES_8[rm as usize].to_owned());
+
+    if v.is_some() {
+        let index =
+            ((if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
+                *DS.read().unwrap()
+            } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                *SS.read().unwrap()
+            } else {
+                panic!()
+            } as u32)
+                << 4)
+                + v.unwrap() as u32;
+        let r_bst = bst.read_byte_at(index as usize);
+        bst.replace_byte(index as usize, r_bst);
+    } else {
+        let srcv = get_parsed_reg_8(&src).unwrap();
+        let destv = get_parsed_reg_8(&dest).unwrap();
+        set_parsed_reg_8(&dest, destv + srcv).unwrap();
+    }
+
+    format!("add {dest},{src}")
 }
 // 01-0d
-pub fn op_0e(execute: bool) -> String {
-    if execute {
-        STACK.write().unwrap().push(*CS.read().unwrap());
-    }
+pub fn op_0e() -> String {
+    STACK.write().unwrap().push(*CS.read().unwrap());
     "push cs".to_owned()
 }
 // 0f-1e
-pub fn op_1f(execute: bool) -> String {
-    if execute {
-        *DS.write().unwrap() = STACK.write().unwrap().pop().unwrap();
-    }
+pub fn op_1f() -> String {
+    *DS.write().unwrap() = STACK.write().unwrap().pop().unwrap();
     "pop ds".to_owned()
 }
 // 20-32
-pub fn op_33(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_33(bst: &mut ByteStream) -> String {
     let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     let destreg = REG_NAMES[reg as usize].to_owned();
 
-    if execute {
-        let regv = get_parsed_reg(&destreg).unwrap();
-        if v.is_some() {
-            let index =
-                ((if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7
-                {
-                    *DS.read().unwrap()
-                } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
-                    *SS.read().unwrap()
-                } else {
-                    panic!()
-                } as u32)
-                    << 4)
-                    + v.unwrap() as u32;
-            let r_bst = bst.read_word_at(index as usize);
-            set_parsed_reg(&destreg, regv ^ r_bst).unwrap();
-        } else {
-            let reg_name = REG_NAMES[rm as usize].to_owned();
-            set_parsed_reg(&destreg, regv ^ get_parsed_reg(&reg_name).unwrap()).unwrap();
-        }
+    let regv = get_parsed_reg(&destreg).unwrap();
+    if v.is_some() {
+        let index =
+            ((if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
+                *DS.read().unwrap()
+            } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                *SS.read().unwrap()
+            } else {
+                panic!()
+            } as u32)
+                << 4)
+                + v.unwrap() as u32;
+        let r_bst = bst.read_word_at(index as usize);
+        set_parsed_reg(&destreg, regv ^ r_bst).unwrap();
+    } else {
+        let reg_name = REG_NAMES[rm as usize].to_owned();
+        set_parsed_reg(&destreg, regv ^ get_parsed_reg(&reg_name).unwrap()).unwrap();
     }
 
     format!(
@@ -167,53 +211,43 @@ pub fn op_33(execute: bool, bst: &mut ByteStream) -> String {
     )
 }
 // 34-4f
-pub fn op_50(execute: bool) -> String {
-    if execute {
-        STACK.write().unwrap().push(get_ax());
-    }
+pub fn op_50() -> String {
+    STACK.write().unwrap().push(get_ax());
     "push ax".to_owned()
 }
 // 51-54
-pub fn op_55(execute: bool) -> String {
-    if execute {
-        STACK.write().unwrap().push(*BP.read().unwrap());
-    }
+pub fn op_55() -> String {
+    STACK.write().unwrap().push(*BP.read().unwrap());
     "push bp".to_owned()
 }
-pub fn op_56(execute: bool) -> String {
-    if execute {
-        STACK.write().unwrap().push(*SI.read().unwrap());
-    }
+pub fn op_56() -> String {
+    STACK.write().unwrap().push(*SI.read().unwrap());
     "push si".to_owned()
 }
 // 57-5c
-pub fn op_5d(execute: bool) -> String {
-    if execute {
-        *BP.write().unwrap() = STACK.write().unwrap().pop().unwrap();
-    }
+pub fn op_5d() -> String {
+    *BP.write().unwrap() = STACK.write().unwrap().pop().unwrap();
     "pop bp".to_owned()
 }
 // 5e-80
-pub fn op_81(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_81(bst: &mut ByteStream) -> String {
     let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
 
     let immediate = bst.read_word();
     let mnemonic = OPS[reg as usize];
 
-    if execute {
-        match mnemonic {
-            "sub" => {
-                if v.is_some() {
-                    let vt = bst.read_word_at(v.unwrap() as usize);
-                    bst.replace_word(v.unwrap() as usize, vt.wrapping_sub(immediate));
-                } else {
-                    let sregv = REG_NAMES[rm as usize].to_owned();
-                    let regv = get_parsed_reg(&sregv).unwrap();
-                    set_parsed_reg(&sregv, regv.wrapping_sub(immediate)).unwrap();
-                }
+    match mnemonic {
+        "sub" => {
+            if v.is_some() {
+                let vt = bst.read_word_at(v.unwrap() as usize);
+                bst.replace_word(v.unwrap() as usize, vt.wrapping_sub(immediate));
+            } else {
+                let sregv = REG_NAMES[rm as usize].to_owned();
+                let regv = get_parsed_reg(&sregv).unwrap();
+                set_parsed_reg(&sregv, regv.wrapping_sub(immediate)).unwrap();
             }
-            &_ => panic!(),
         }
+        &_ => panic!(),
     }
 
     format!(
@@ -223,26 +257,24 @@ pub fn op_81(execute: bool, bst: &mut ByteStream) -> String {
     )
 }
 // 82
-pub fn op_83(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_83(bst: &mut ByteStream) -> String {
     let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
 
     let immediate = bst.read_byte();
     let mnemonic = OPS[reg as usize];
 
-    if execute {
-        match mnemonic {
-            "sub" => {
-                if v.is_some() {
-                    let vt = bst.read_byte_at(v.unwrap() as usize);
-                    bst.replace_byte(v.unwrap() as usize, vt.wrapping_sub(immediate));
-                } else {
-                    let sregv = REG_NAMES[rm as usize].to_owned();
-                    let regv = get_parsed_reg(&sregv).unwrap();
-                    set_parsed_reg(&sregv, regv.wrapping_sub(immediate as u16)).unwrap();
-                }
+    match mnemonic {
+        "sub" => {
+            if v.is_some() {
+                let vt = bst.read_byte_at(v.unwrap() as usize);
+                bst.replace_byte(v.unwrap() as usize, vt.wrapping_sub(immediate));
+            } else {
+                let sregv = REG_NAMES[rm as usize].to_owned();
+                let regv = get_parsed_reg(&sregv).unwrap();
+                set_parsed_reg(&sregv, regv.wrapping_sub(immediate as u16)).unwrap();
             }
-            &_ => panic!(),
         }
+        &_ => panic!(),
     }
 
     format!(
@@ -252,26 +284,24 @@ pub fn op_83(execute: bool, bst: &mut ByteStream) -> String {
     )
 }
 // 84-8a
-pub fn op_8b(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_8b(bst: &mut ByteStream) -> String {
     let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     let destreg = REG_NAMES[reg as usize].to_owned();
 
-    if execute {
-        if v.is_some() {
-            let index =
-                if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
-                    *DS.read().unwrap()
-                } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
-                    *SS.read().unwrap()
-                } else {
-                    panic!()
-                } << 4 + v.unwrap();
+    if v.is_some() {
+        let index =
+            if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
+                *DS.read().unwrap()
+            } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                *SS.read().unwrap()
+            } else {
+                panic!()
+            } << 4 + v.unwrap();
 
-            set_parsed_reg(&destreg, bst.read_word_at(index as usize)).unwrap();
-        } else {
-            let regv = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
-            set_parsed_reg(&destreg, regv).unwrap();
-        }
+        set_parsed_reg(&destreg, bst.read_word_at(index as usize)).unwrap();
+    } else {
+        let regv = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
+        set_parsed_reg(&destreg, regv).unwrap();
     }
 
     format!(
@@ -279,27 +309,25 @@ pub fn op_8b(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op_8c(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_8c(bst: &mut ByteStream) -> String {
     let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     let seg_reg = SEG_REG_NAMES[reg as usize].to_owned();
 
-    if execute {
-        if v.is_some() {
-            let index =
-                if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
-                    *DS.read().unwrap()
-                } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
-                    *SS.read().unwrap()
-                } else {
-                    panic!()
-                } << 4 + v.unwrap();
+    if v.is_some() {
+        let index =
+            if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
+                *DS.read().unwrap()
+            } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                *SS.read().unwrap()
+            } else {
+                panic!()
+            } << 4 + v.unwrap();
 
-            let regv = get_parsed_seg_reg(&seg_reg).unwrap();
-            bst.replace_word(index as usize, regv);
-        } else {
-            let regv = get_parsed_seg_reg(&seg_reg).unwrap();
-            set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), regv).unwrap();
-        }
+        let regv = get_parsed_seg_reg(&seg_reg).unwrap();
+        bst.replace_word(index as usize, regv);
+    } else {
+        let regv = get_parsed_seg_reg(&seg_reg).unwrap();
+        set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), regv).unwrap();
     }
 
     format!(
@@ -307,42 +335,38 @@ pub fn op_8c(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op_8d(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_8d(bst: &mut ByteStream) -> String {
     let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
-    if execute {
-        set_parsed_reg(
-            &REG_NAMES[reg as usize].to_owned(),
-            v.unwrap_or_else(|| get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap()),
-        )
-        .unwrap();
-    }
+    set_parsed_reg(
+        &REG_NAMES[reg as usize].to_owned(),
+        v.unwrap_or_else(|| get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap()),
+    )
+    .unwrap();
     format!(
         "lea {},{}",
         REG_NAMES[reg as usize],
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-pub fn op_8e(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_8e(bst: &mut ByteStream) -> String {
     let (_, mod_s, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
     let seg_reg = SEG_REG_NAMES[reg as usize].to_owned();
 
-    if execute {
-        if v.is_some() {
-            let index =
-                if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
-                    *DS.read().unwrap()
-                } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
-                    *SS.read().unwrap()
-                } else {
-                    panic!()
-                } << 4 + v.unwrap();
+    if v.is_some() {
+        let index =
+            if rm == 0 || rm == 1 || rm == 4 || rm == 5 || (rm == 6 && mod_s == 0) || rm == 7 {
+                *DS.read().unwrap()
+            } else if rm == 2 || rm == 3 || (rm == 6 && mod_s != 0) {
+                *SS.read().unwrap()
+            } else {
+                panic!()
+            } << 4 + v.unwrap();
 
-            let regv = bst.read_word_at(index as usize);
-            set_parsed_seg_reg(&seg_reg, regv).unwrap();
-        } else {
-            let regv = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
-            set_parsed_seg_reg(&seg_reg, regv).unwrap();
-        }
+        let regv = bst.read_word_at(index as usize);
+        set_parsed_seg_reg(&seg_reg, regv).unwrap();
+    } else {
+        let regv = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
+        set_parsed_seg_reg(&seg_reg, regv).unwrap();
     }
 
     format!(
@@ -350,215 +374,181 @@ pub fn op_8e(execute: bool, bst: &mut ByteStream) -> String {
         v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
     )
 }
-// 8f-ad
-pub fn op_ae(execute: bool, bst: &mut ByteStream) -> String {
-    if execute {
-        let ptr_val = bst.read_byte_at(
-            (((*ES.read().unwrap() as u32) << 4) + *DI.read().unwrap() as u32) as usize,
-        );
-        *ZF.write().unwrap() = ptr_val == *AL.read().unwrap();
-        if *DF.read().unwrap() {
-            *DI.write().unwrap() -= 1;
-        } else {
-            *DI.write().unwrap() += 1;
-        }
+// 8f
+pub fn op_90() -> String {
+    "nop".to_owned()
+}
+// 91-ad
+pub fn op_ae(bst: &mut ByteStream) -> String {
+    let ptr_val = bst
+        .read_byte_at((((*ES.read().unwrap() as u32) << 4) + *DI.read().unwrap() as u32) as usize);
+    *ZF.write().unwrap() = ptr_val == *AL.read().unwrap();
+    if *DF.read().unwrap() {
+        *DI.write().unwrap() -= 1;
+    } else {
+        *DI.write().unwrap() += 1;
     }
 
     "scasb".to_owned()
 }
 // af
-pub fn op_b0(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov al,0x{}", {
+pub fn op_b0(bst: &mut ByteStream) -> String {
+    format!("mov al,0x{:X}", {
         let b = bst.read_byte();
-        if execute {
-            *AL.write().unwrap() = b;
-        }
+        *AL.write().unwrap() = b;
         b
     })
 }
-pub fn op_b1(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov cl,0x{}", {
+pub fn op_b1(bst: &mut ByteStream) -> String {
+    format!("mov cl,0x{:X}", {
         let b = bst.read_byte();
-        if execute {
-            *CL.write().unwrap() = b;
-        }
+        *CL.write().unwrap() = b;
         b
     })
 }
-pub fn op_b2(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov dl,0x{}", {
+pub fn op_b2(bst: &mut ByteStream) -> String {
+    format!("mov dl,0x{:X}", {
         let b = bst.read_byte();
-        if execute {
-            *DL.write().unwrap() = b;
-        }
+        *DL.write().unwrap() = b;
         b
     })
 }
-pub fn op_b3(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov bl,0x{}", {
+pub fn op_b3(bst: &mut ByteStream) -> String {
+    format!("mov bl,0x{:X}", {
         let b = bst.read_byte();
-        if execute {
-            *BL.write().unwrap() = b;
-        }
+        *BL.write().unwrap() = b;
         b
     })
 }
-pub fn op_b4(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov ah,0x{}", {
+pub fn op_b4(bst: &mut ByteStream) -> String {
+    format!("mov ah,0x{:X}", {
         let b = bst.read_byte();
-        if execute {
-            *AL.write().unwrap() = b;
-        }
+        *AH.write().unwrap() = b;
         b
     })
 }
-pub fn op_b5(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov ch,0x{}", {
+pub fn op_b5(bst: &mut ByteStream) -> String {
+    format!("mov ch,0x{:X}", {
         let b = bst.read_byte();
-        if execute {
-            *CL.write().unwrap() = b;
-        }
+        *CH.write().unwrap() = b;
         b
     })
 }
-pub fn op_b6(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov dh,0x{}", {
+pub fn op_b6(bst: &mut ByteStream) -> String {
+    format!("mov dh,0x{:X}", {
         let b = bst.read_byte();
-        if execute {
-            *DL.write().unwrap() = b;
-        }
+        *DH.write().unwrap() = b;
         b
     })
 }
-pub fn op_b7(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov bh,0x{}", {
+pub fn op_b7(bst: &mut ByteStream) -> String {
+    format!("mov bh,0x{:X}", {
         let b = bst.read_byte();
-        if execute {
-            *BL.write().unwrap() = b;
-        }
+        *BH.write().unwrap() = b;
         b
     })
 }
-pub fn op_b8(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov ax,0x{}", {
+pub fn op_b8(bst: &mut ByteStream) -> String {
+    format!("mov ax,0x{:X}", {
         let w = bst.read_word();
-        if execute {
-            set_ax(w);
-        }
+        set_ax(w);
         w
     })
 }
-pub fn op_b9(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov cx,0x{}", {
+pub fn op_b9(bst: &mut ByteStream) -> String {
+    format!("mov cx,0x{:X}", {
         let w = bst.read_word();
-        if execute {
-            set_cx(w);
-        }
+        set_cx(w);
         w
     })
 }
-pub fn op_ba(execute: bool, bst: &mut ByteStream) -> String {
-    format!("mov dx,0x{}", {
+pub fn op_ba(bst: &mut ByteStream) -> String {
+    format!("mov dx,0x{:X}", {
         let w = bst.read_word();
-        if execute {
-            set_dx(w);
-        }
+        set_dx(w);
         w
     })
 }
-pub fn op_bb(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_bb(bst: &mut ByteStream) -> String {
     format!("mov bx,0x{}", {
         let w = bst.read_word();
-        if execute {
-            set_bx(w);
-        }
+        set_bx(w);
         w
     })
 }
-pub fn op_bc(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_bc(bst: &mut ByteStream) -> String {
     format!("mov sp,0x{}", {
         let w = bst.read_word();
-        if execute {
-            *SP.write().unwrap() = w;
-        }
+        *SP.write().unwrap() = w;
         w
     })
 }
-pub fn op_bd(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_bd(bst: &mut ByteStream) -> String {
     format!("mov bp,0x{}", {
         let w = bst.read_word();
-        if execute {
-            *BP.write().unwrap() = w;
-        }
+        *BP.write().unwrap() = w;
         w
     })
 }
-pub fn op_be(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_be(bst: &mut ByteStream) -> String {
     format!("mov si,0x{}", {
         let w = bst.read_word();
-        if execute {
-            *SI.write().unwrap() = w;
-        }
+        *SI.write().unwrap() = w;
         w
     })
 }
-pub fn op_bf(execute: bool, bst: &mut ByteStream) -> String {
+pub fn op_bf(bst: &mut ByteStream) -> String {
     format!("mov di,0x{}", {
         let w = bst.read_word();
-        if execute {
-            *DI.write().unwrap() = w;
-        }
+        *DI.write().unwrap() = w;
         w
     })
 }
 // c0-c2
-pub fn op_c3(execute: bool, bst: &mut ByteStream) -> String {
-    if execute {
-        bst.pos = STACK.write().unwrap().pop().unwrap() as usize;
-    }
-
+pub fn op_c3(bst: &mut ByteStream) -> String {
+    bst.pos = STACK.write().unwrap().pop().unwrap() as usize;
     "ret".to_owned()
 }
 // c4-cb
-pub fn op_cd(execute: bool, bst: &mut ByteStream, api: API) -> (String, InteruptChange) {
+pub fn op_cd(bst: &mut ByteStream, api: &API) -> (String, InteruptChange) {
     match api {
-        API::DOS => dos_op_cd(execute, bst),
-        _ => (format!("int {}h", bst.read_byte()), InteruptChange::None),
+        API::DOS => dos_op_cd(bst),
+        _ => (format!("int {:X}h", bst.read_byte()), InteruptChange::None),
     }
 }
 // ce-e7
-pub fn op_e8(execute: bool, bst: &mut ByteStream) -> String {
-    let disp = bst.read_sword();
-    if execute {
-        STACK.write().unwrap().push(bst.pos as u16);
-        bst.pos += disp as usize;
-        format!("call 0x{:0000X}", bst.pos)
-    } else {
-        format!("call 0x{:0000X}", bst.pos + disp as usize)
-    }
+pub fn op_e8(bst: &mut ByteStream) -> String {
+    STACK.write().unwrap().push(bst.pos as u16);
+    bst.pos += bst.read_sword() as usize;
+    format!("call 0x{:04X}", bst.pos)
 }
-
-pub fn op_f2(execute: bool, bst: &mut ByteStream) -> String {
-    if execute {
-        let fixed_pos = bst.pos;
-        let r = execute_byte_code(bst);
-        set_cx(get_cx() - 1);
-        while get_cx() > 0 || *ZF.read().unwrap() == true {
-            bst.pos = fixed_pos;
-            if execute_byte_code(bst) != r {
-                panic!();
-            }
+// e9-f1
+pub fn op_f2(bst: &mut ByteStream, api: &API) -> String {
+    let fixed_pos = bst.pos;
+    let r = run_byte_code(bst, api);
+    set_cx(get_cx() - 1);
+    while get_cx() > 0 || *ZF.read().unwrap() == false {
+        bst.pos = fixed_pos;
+        if run_byte_code(bst, api) != r {
+            panic!();
         }
-        format!("repne {r}")
-    } else {
-        format!("repne {}", parse_byte_code(bst))
     }
+    format!("repne {r}")
 }
-pub fn op_f3() -> String {
-    format!("")
+pub fn op_f3(bst: &mut ByteStream, api: &API) -> String {
+    let fixed_pos = bst.pos;
+    let r = run_byte_code(bst, api);
+    set_cx(get_cx() - 1);
+    while get_cx() > 0 || *ZF.read().unwrap() == true {
+        bst.pos = fixed_pos;
+        if run_byte_code(bst, api) != r {
+            panic!();
+        }
+    }
+    format!("rep {r}")
 }
-
-pub fn op_f7(execute: bool, bst: &mut ByteStream) -> String {
+// f4-f6
+pub fn op_f7(bst: &mut ByteStream) -> String {
     let (_, _, reg, rm, _, v, v_s) = modrm_byte_handling(bst);
 
     match reg {
@@ -566,52 +556,46 @@ pub fn op_f7(execute: bool, bst: &mut ByteStream) -> String {
             let imm16 = bst.read_word();
             let res =
                 v.unwrap_or_else(|| get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap());
-            if execute {
-                *CF.write().unwrap() = false;
-                *OF.write().unwrap() = false;
-                *ZF.write().unwrap() = res == 0;
-                *SF.write().unwrap() = (res >> 15) == 1;
-                *PF.write().unwrap() = (res & 0xFF).count_ones() % 2 == 0;
-            }
+            *CF.write().unwrap() = false;
+            *OF.write().unwrap() = false;
+            *ZF.write().unwrap() = res == 0;
+            *SF.write().unwrap() = (res >> 15) == 1;
+            *PF.write().unwrap() = (res & 0xFF).count_ones() % 2 == 0;
             format!(
-                "test {},0x{imm16:0000X}",
+                "test {},0x{imm16:04X}",
                 v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
             )
         }
         2 => {
-            if execute {
-                if let Some(v1) = v {
-                    let w = bst.read_word_at(v1 as usize);
-                    bst.replace_word(v1 as usize, !w);
-                } else {
-                    let w = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
-                    set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), !w).unwrap();
-                }
+            if let Some(v1) = v {
+                let w = bst.read_word_at(v1 as usize);
+                bst.replace_word(v1 as usize, !w);
+            } else {
+                let w = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
+                set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), !w).unwrap();
             }
+
             format!(
                 "not {}",
                 v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
             )
         }
         3 => {
-            if execute {
-                let res = if let Some(v1) = v {
-                    let w = bst.read_word_at(v1 as usize);
-                    bst.replace_word(v1 as usize, 0u16.wrapping_sub(w));
-                    bst.read_word_at(v1 as usize)
-                } else {
-                    let w = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
-                    set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), 0u16.wrapping_sub(w))
-                        .unwrap();
-                    get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap()
-                };
-                *CF.write().unwrap() = res != 0;
-                *OF.write().unwrap() = res == 0x8000;
-                *ZF.write().unwrap() = res == 0;
-                *SF.write().unwrap() = (res >> 15) & 0b1 == 1;
-                *PF.write().unwrap() = (res & 0xFF).count_ones() % 2 == 0;
-                // AF?
-            }
+            let res = if let Some(v1) = v {
+                let w = bst.read_word_at(v1 as usize);
+                bst.replace_word(v1 as usize, 0u16.wrapping_sub(w));
+                bst.read_word_at(v1 as usize)
+            } else {
+                let w = get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap();
+                set_parsed_reg(&REG_NAMES[rm as usize].to_owned(), 0u16.wrapping_sub(w)).unwrap();
+                get_parsed_reg(&REG_NAMES[rm as usize].to_owned()).unwrap()
+            };
+            *CF.write().unwrap() = res != 0;
+            *OF.write().unwrap() = res == 0x8000;
+            *ZF.write().unwrap() = res == 0;
+            *SF.write().unwrap() = (res >> 15) & 0b1 == 1;
+            *PF.write().unwrap() = (res & 0xFF).count_ones() % 2 == 0;
+            // AF?
             format!(
                 "neg {}",
                 v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
@@ -621,50 +605,244 @@ pub fn op_f7(execute: bool, bst: &mut ByteStream) -> String {
         _ => panic!(),
     }
 }
+// f8-ff
 
-pub fn parse_byte_code(bst: &mut ByteStream) -> String {
+pub fn run_byte_code(bst: &mut ByteStream, api: &API) -> String {
     let byte = bst.read_byte();
 
     match byte {
-        0x00 => op_00(),
-        0x0E => op_0e(false),
-        0x1F => op_1f(false),
-        0x33 => op_33(false, bst),
+        0x00 => op_00(bst),
+        0x0E => op_0e(),
+        0x1F => op_1f(),
+        0x33 => op_33(bst),
+        0x50 => op_50(),
+        0x55 => op_55(),
+        0x56 => op_56(),
+        0x5D => op_5d(),
+        0x81 => op_81(bst),
+        0x83 => op_83(bst),
+        0x8B => op_8b(bst),
+        0x8C => op_8c(bst),
+        0x8D => op_8d(bst),
+        0x8E => op_8e(bst),
+        0xAE => op_ae(bst),
+        0xB0 => op_b0(bst),
+        0xB1 => op_b1(bst),
+        0xB2 => op_b2(bst),
+        0xB3 => op_b3(bst),
+        0xB4 => op_b4(bst),
+        0xB5 => op_b5(bst),
+        0xB6 => op_b6(bst),
+        0xB7 => op_b7(bst),
+        0xB8 => op_b8(bst),
+        0xB9 => op_b9(bst),
+        0xBA => op_ba(bst),
+        0xBB => op_bb(bst),
+        0xBC => op_bc(bst),
+        0xBD => op_bd(bst),
+        0xBE => op_be(bst),
+        0xBF => op_bf(bst),
+        0xC3 => op_c3(bst),
+        0xCD => {
+            let (s, int) = op_cd(bst, api);
+            match int {
+                InteruptChange::None => {}
+                InteruptChange::Exit => {}
+                InteruptChange::SkipString(b, e) => {
+                    bst.skip_bytes_at(&(b..e).map(|x| x).collect::<Vec<usize>>());
+                }
+            }
+            s
+        }
+        0xE8 => op_e8(bst),
+        0xF2 => op_f2(bst, api),
+        0xF3 => op_f3(bst, api),
+        0xF7 => op_f7(bst),
         _ => panic!(),
     }
 }
 
-/// <p>Parses code and converts it into 16-bit assembly code with the x86 instruction set.</p>
-pub fn parse_code(bytes: &Vec<u8>) -> Vec<String> {
+/// Executes given code with a specific API set.
+pub fn run_code(bytes: &Vec<u8>, api: &API) -> Vec<String> {
     let mut bst = ByteStream::new(bytes.clone());
 
     let mut code = Vec::new();
 
     while bst.available() {
-        code.push(parse_byte_code(&mut bst));
+        code.push(run_byte_code(&mut bst, api));
     }
 
     code
 }
 
-pub fn execute_byte_code(bst: &mut ByteStream) -> String {
-    let byte = bst.read_byte();
+pub fn single_static_code(bst: &mut ByteStream) -> String {
+    match bst.read_byte() {
+        0x00 => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+            format!(
+                "add {},{}",
+                v_s.unwrap_or(REG_NAMES_8[rm as usize].to_owned()),
+                REG_NAMES_8[reg as usize]
+            )
+        }
+        0x0E => format!("push cs"),
+        0x1F => format!("pop ds"),
+        0x33 => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+            let destreg = REG_NAMES[reg as usize].to_owned();
 
-    match byte {
-        0x00 => op_00(),
-        0x0E => op_0e(true),
-        0x1F => op_1f(true),
-        _ => panic!()
+            format!(
+                "xor {destreg},{}",
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        0x50 => format!("push ax"),
+        0x55 => format!("push bp"),
+        0x56 => format!("push si"),
+        0x5D => format!("pop bp"),
+        0x81 => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+            let immediate = bst.read_word();
+            let mnemonic = OPS[reg as usize];
+
+            format!(
+                "{} {},0x{immediate:X}",
+                mnemonic,
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        0x83 => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+            let immediate = bst.read_byte();
+            let mnemonic = OPS[reg as usize];
+
+            format!(
+                "{} {},0x{immediate:X}",
+                mnemonic,
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        0x8B => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+            let destreg = REG_NAMES[reg as usize].to_owned();
+
+            format!(
+                "mov {destreg},{}",
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        0x8C => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+            let seg_reg = SEG_REG_NAMES[reg as usize].to_owned();
+
+            format!(
+                "mov {},{seg_reg}",
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        0x8D => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+
+            format!(
+                "lea {},{}",
+                REG_NAMES[reg as usize],
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        0x8E => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+            let seg_reg = SEG_REG_NAMES[reg as usize].to_owned();
+
+            format!(
+                "mov {seg_reg},{}",
+                v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+            )
+        }
+        0x90 => format!("nop"),
+        0xAE => format!("scasb"),
+        0xB0 => format!("mov al,0x{:X}", bst.read_byte()),
+        0xB1 => format!("mov cl,0x{:X}", bst.read_byte()),
+        0xB2 => format!("mov dl,0x{:X}", bst.read_byte()),
+        0xB3 => format!("mov bl,0x{:X}", bst.read_byte()),
+        0xB4 => format!("mov ah,0x{:X}", bst.read_byte()),
+        0xB5 => format!("mov ch,0x{:X}", bst.read_byte()),
+        0xB6 => format!("mov dh,0x{:X}", bst.read_byte()),
+        0xB7 => format!("mov bh,0x{:X}", bst.read_byte()),
+        0xB8 => format!("mov ax,0x{:X}", bst.read_word()),
+        0xB9 => format!("mov cx,0x{:X}", bst.read_word()),
+        0xBA => format!("mov dx,0x{:X}", bst.read_word()),
+        0xBB => format!("mov bx,0x{:X}", bst.read_word()),
+        0xBC => format!("mov sp,0x{:X}", bst.read_word()),
+        0xBD => format!("mov bp,0x{:X}", bst.read_word()),
+        0xBE => format!("mov si,0x{:X}", bst.read_word()),
+        0xBF => format!("mov di,0x{:X}", bst.read_word()),
+        0xC3 => format!("ret"),
+        0xCD => format!("int {:X}h", bst.read_byte()),
+        0xE8 => format!("call {:04X}h", bst.pos as i16 + bst.read_sword()),
+        0xF2 => format!("repne {}", single_static_code(bst)),
+        0xF3 => format!("rep {}", single_static_code(bst)),
+        0xF7 => {
+            let (_, _, reg, rm, _, _, v_s) = modrm_byte_handling(bst);
+
+            match reg {
+                0 => {
+                    format!(
+                        "test {},0x{:04X}",
+                        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned()),
+                        bst.read_word()
+                    )
+                }
+                2 => {
+                    format!(
+                        "not {}",
+                        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+                    )
+                }
+                3 => {
+                    format!(
+                        "neg {}",
+                        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+                    )
+                }
+                4 => {
+                    format!(
+                        "mul {}",
+                        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+                    )
+                }
+                5 => {
+                    format!(
+                        "imul {}",
+                        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+                    )
+                }
+                6 => {
+                    format!(
+                        "div {}",
+                        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+                    )
+                }
+                7 => {
+                    format!(
+                        "idiv {}",
+                        v_s.unwrap_or_else(|| REG_NAMES[rm as usize].to_owned())
+                    )
+                }
+                _ => format!("0xF7: incorrect reg value {reg} from mod"),
+            }
+        }
+        b => format!("byte code 0x{b:02X} not implemented"),
     }
 }
 
-pub fn execute_code(bytes: &Vec<u8>) -> Vec<String> {
+/// Parses code without executing it (NOTE: there are instructions that can manipulate the machine code during runtime).
+pub fn static_code(bytes: &Vec<u8>) -> Vec<String> {
     let mut bst = ByteStream::new(bytes.clone());
 
     let mut code = Vec::new();
 
     while bst.available() {
-        code.push(execute_byte_code(&mut bst))
+        code.push(single_static_code(&mut bst));
     }
 
     code
