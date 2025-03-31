@@ -80,12 +80,12 @@ impl MZ {
             }
         }
 
-        //*x86_16::SS.write().unwrap() = init_ss;
-        //*x86_16::SP.write().unwrap() = init_sp;
-        //*x86_16::IP.write().unwrap() = init_ip;
-        //*x86_16::CS.write().unwrap() = init_cs;
+        *x86_16::SS.write().unwrap() = Some(init_ss);
+        *x86_16::SP.write().unwrap() = Some(init_sp);
+        *x86_16::IP.write().unwrap() = Some(init_ip);
+        *x86_16::CS.write().unwrap() = Some(init_cs);
         let header_byte_code = bst.read_bytes((new_header_start - header_size as u32 * 16) as usize);
-        let static_code = x86_16::static_code(&header_byte_code);
+        let static_code = x86_16::interpret_code(&header_byte_code, &crate::apis::API::DOS);
         for l in static_code.clone() {
             println!("{l}");
         }

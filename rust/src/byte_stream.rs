@@ -17,6 +17,8 @@ impl ByteStream {
         self.pos < self.buf.len()
     }
 
+    //fn auto_err_available(&self) -> Result
+
     pub fn check_reserved(&mut self, byte_count: usize) -> bool {
         let cp = self.pos;
         for _ in 0..byte_count {
