@@ -157,7 +157,7 @@ export class NewExecutable {
 
         if (bst.Position < resTblOff + offset) {
             let rawData = [];
-            while (bst.Position < segTblOff) {
+            while (bst.Position < resTblOff) {
                 rawData.push(bst.ReadByte());
             }
             debugger;
