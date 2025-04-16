@@ -4,4 +4,5 @@ pub mod dos;
 pub enum API {
     None,
     DOS,
+    WinNT,
 }

@@ -28,11 +28,6 @@ function logInfo(exe: Executable) {
 
     console.log();
 
-    console.log("MZ Header code:");
-    exe.MZInfo.HeaderCode.forEach(line => {
-        console.log(line);
-    });
-
     console.log();
     //#endregion
 
@@ -79,9 +74,12 @@ function logInfo(exe: Executable) {
     }
 }
 
-const file1 = "C:/Users/jjthe/Desktop/16-bit Programs/Spelling Jungle/BST.EXE";
-const file2 = "C:/Users/jjthe/Desktop/16-bit Programs/Spelling Jungle/BSTCDRES.DLL";
-const file3 = "C:/Users/jjthe/Downloads/American Girls Premiere/DISK1/SETUP.EXE";
+const file1 = "../ref/BST.EXE";
+const file2 = "../ref/BSTCDRES.DLL";
+const file3 = "../ref/SETUPBST.EXE";
+const file4 = "../ref/SETUP.EXE";
+
+const file5 = "../ref/soundplayer.exe";
 
 console.log("Info of " + file1); logInfo(Executable.Read(file1));
 //console.log("Info of " + file2); logInfo(Executable.Read(file2));

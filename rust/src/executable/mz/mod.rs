@@ -1,6 +1,11 @@
+use crate::{
+    apis::API,
+    byte_operation::code::{Architecture, Code, Instruction},
+    byte_stream::ByteStream,
+};
 use ne::NewExecutable;
 
-use crate::{byte_operation::x86_16, byte_stream::ByteStream};
+use super::ExecutableError;
 
 pub mod ne;
 
@@ -22,6 +27,7 @@ pub struct MZ {
     pub last_page_bytes: u16,
     pub page_count: u16,
     pub relocation_table_entry_count: u16,
+    /// In paragraphs
     pub header_size: u16,
     pub min_alloc: u16,
     pub max_alloc: u16,
@@ -37,8 +43,10 @@ pub struct MZ {
     pub oem_info: u16,
     pub new_header_start: u32,
 
+    pub extension: Option<MZExtSignature>,
+
     pub relocation_tables: Vec<RelocationTable>,
-    pub header_code: (Vec<u8>, Vec<String>),
+    pub header_code: Code,
 }
 
 impl MZ {
@@ -46,7 +54,7 @@ impl MZ {
         "MZ".to_owned()
     }
 
-    pub fn read(bst: &mut ByteStream) -> Self {
+    pub fn read(bst: &mut ByteStream) -> Result<Self, ExecutableError> {
         let last_page_bytes = bst.read_word();
         let page_count = bst.read_word();
         let relocation_table_entry_count = bst.read_word();
@@ -80,22 +88,19 @@ impl MZ {
             }
         }
 
-        *x86_16::SS.write().unwrap() = Some(init_ss);
-        *x86_16::SP.write().unwrap() = Some(init_sp);
-        *x86_16::IP.write().unwrap() = Some(init_ip);
-        *x86_16::CS.write().unwrap() = Some(init_cs);
-        let header_byte_code = bst.read_bytes((new_header_start - header_size as u32 * 16) as usize);
-        let static_code = x86_16::interpret_code(&header_byte_code, &crate::apis::API::DOS);
-        for l in static_code.clone() {
-            println!("{l}");
-        }
-        println!();
+        let header_byte_code =
+            bst.read_bytes((new_header_start - header_size as u32 * 16) as usize);
 
-        if new_header_start > 0 {
-            
-        }
+        let extension = if new_header_start > 0 {
+            match &bst.read_bytes(2)[0..2] {
+                b"NE" => Some(MZExtSignature::NE(NewExecutable::read(bst, new_header_start as u16))),
+                _ => None,
+            }
+        } else {
+            None
+        };
 
-        MZ {
+        Ok(MZ {
             last_page_bytes,
             page_count,
             relocation_table_entry_count,
@@ -113,9 +118,15 @@ impl MZ {
             oem_id,
             oem_info,
             new_header_start,
+            extension,
             relocation_tables,
-            header_code: (header_byte_code, static_code),
-        }
+            header_code: Code {
+                api: API::DOS,
+                arch: Architecture::Sixteen,
+                bytes: header_byte_code,
+                set: Instruction::X86,
+            },
+        })
     }
 }
 

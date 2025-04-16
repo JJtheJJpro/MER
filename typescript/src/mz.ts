@@ -1,4 +1,3 @@
-import x86_16 from "./byte-operation/x86_16";
 import ByteStream from "./bytestream";
 
 /**
@@ -84,7 +83,7 @@ export class MZ {
     /**
      * The assembly code.
      */
-    HeaderCode: string[];
+    HeaderCode: Buffer;
 
     private constructor(magic: "MZ",
         lastPageBytes: number,
@@ -100,7 +99,7 @@ export class MZ {
         initCS: number,
         relocTableOffset: number,
         overlay: number,
-        headerCode: string[],
+        headerCode: Buffer,
         relocTbls: RelocationTable[],
         oemid?: number,
         oeminfo?: number,
@@ -176,15 +175,10 @@ export class MZ {
         if (!newHeaderStart) {
             throw new Error();
         }
-
-        x86_16.ss = initSS;
-        x86_16.sp = initSP;
-        x86_16.ip = initIP;
-        x86_16.cs = initCS;
+        
         let bytes = bst.ReadBytes(newHeaderStart - headerSize * 16);
-        let code = x86_16.parseCode(bytes);
 
-        return new MZ("MZ", lastPageBytes, pageCount, numEntriesRelocTable, headerSize, minAlloc, maxAlloc, initSS, initSP, checksum, initIP, initCS, relocTableOffset, overlay, code, relocTbls, oemid, oeminfo, newHeaderStart);
+        return new MZ("MZ", lastPageBytes, pageCount, numEntriesRelocTable, headerSize, minAlloc, maxAlloc, initSS, initSP, checksum, initIP, initCS, relocTableOffset, overlay, Buffer.from(bytes), relocTbls, oemid, oeminfo, newHeaderStart);
     }
 }
 
